@@ -1,7 +1,7 @@
 #!/usr/bin/php
 <?php
 
-define('SITE', 'https://online.pscpayroll.com');
+define('SITE', 'https://eservices.accessacloud.com');
 define('USERAGENT', 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:10.0.2) Gecko/20100101 Firefox/10.0.2');
 define('USERNAME', 'PUT_YOUR_EMAIL_HERE');
 define('PASSWORD', 'PUT_YOUR_PASSWORD_HERE');
@@ -13,6 +13,7 @@ function init_curl($url)
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_AUTOREFERER, true);
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_MAXREDIRS, 10);
 
     curl_setopt($ch, CURLOPT_USERAGENT, USERAGENT);
     curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
@@ -30,8 +31,11 @@ function run_curl($ch)
     return $result;
 }
 
+// Clear cookies
+file_put_contents('cookies.txt', '');
+
 // Get token
-$ch = init_curl('/Global/Account/Login');
+$ch = init_curl('/Global/Account/Login?ReturnUrl=%2F');
 $result = run_curl($ch);
 $xml = new DOMDocument();
 $xml->loadHtml($result);
@@ -40,6 +44,22 @@ $tokenNode = $xpath->query('//input[@name="__RequestVerificationToken"][1]')->it
 $token = $tokenNode->attributes->getNamedItem('value')->nodeValue;
 
 // Log in
+$ch = init_curl('/Global/Account/LegacyLogin');
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
+    'ReturnUrl' => '/',
+    'Username' => USERNAME,
+    '__RequestVerificationToken' => $token
+]));
+
+$result = run_curl($ch);
+$xml = new DOMDocument();
+$xml->loadHtml($result);
+$xpath = new DomXpath($xml);
+$tokenNode = $xpath->query('//input[@name="__RequestVerificationToken"][1]')->item(0);
+$token = $tokenNode->attributes->getNamedItem('value')->nodeValue;
+
+// Log in again, but with password
 $ch = init_curl('/Global/Account/Login');
 curl_setopt($ch, CURLOPT_POST, true);
 curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
@@ -48,6 +68,16 @@ curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
     '__RequestVerificationToken' => $token
 ]));
 
+$result = run_curl($ch);
+
+// Pretend to follow the normal flow
+$ch = init_curl('/Global/Account/PostLogin');
+$result = run_curl($ch);
+
+$ch = init_curl('/Global/Home/RedirectToMenuItem');
+$result = run_curl($ch);
+
+$ch = init_curl('/SS/EEDetails');
 $result = run_curl($ch);
 
 if (!strstr($result, 'LogoutButton')) {
